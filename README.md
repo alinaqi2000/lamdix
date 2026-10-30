@@ -61,3 +61,11 @@ fallback — it never fakes success.
 - `public/` — favicons, manifest icons, `og.png`, `llms.txt`
 - `tests/` — Bun tests for contact validation and the API route
 - `AGENTS.md` — persistent project notes & design research links
+
+## After deploy — search & AI discovery
+
+- Add `lamdix.com` in Google Search Console and Bing Webmaster Tools (Bing powers ChatGPT/Copilot search).
+- Set `GOOGLE_SITE_VERIFICATION` and `BING_SITE_VERIFICATION` env vars in Vercel.
+- Submit `/sitemap.xml` in both consoles.
+- Redirect `www.lamdix.com` → `lamdix.com` in Vercel Domains.
+- Verify `/llms.txt`, `/llms-full.txt`, and `/insights/feed.xml` return correctly.

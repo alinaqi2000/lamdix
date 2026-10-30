@@ -41,8 +41,8 @@ const marquee = ["Custom Software", "AI Agents", "Voice AI", "Calling Campaigns"
 const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
-    { "@type": "Organization", "@id": `${site.url}/#org`, name: site.name, url: site.url, email: site.email, description: site.description, logo: `${site.url}/icon-512.png` },
-    { "@type": "WebSite", "@id": `${site.url}/#site`, url: site.url, name: site.name, publisher: { "@id": `${site.url}/#org` }, inLanguage: "en" },
+    { "@type": "Organization", "@id": `${site.url}/#org`, name: site.name, url: site.url, email: site.email, description: site.description, logo: { "@type": "ImageObject", url: `${site.url}/icon-512.png`, width: 512, height: 512 }, contactPoint: { "@type": "ContactPoint", contactType: "sales", email: site.email, availableLanguage: ["en"] }, knowsAbout: [...services.map((s) => s.title), "AI agents", "Voice AI", "Customer support automation"] },
+    { "@type": "WebSite", "@id": `${site.url}/#site`, url: site.url, name: site.name, description: site.description, publisher: { "@id": `${site.url}/#org` }, inLanguage: "en" },
   ],
 };
 

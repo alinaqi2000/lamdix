@@ -1,8 +1,10 @@
 import type { MetadataRoute } from "next";
 import { services } from "@/lib/services";
+import { serviceExtras } from "@/lib/serviceExtras";
 import { articles } from "@/lib/articles";
 import { site } from "@/lib/site";
 import { industries } from "@/lib/industries";
+import { images } from "@/lib/images";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date("2026-10-29");
@@ -21,6 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: "monthly" as const,
       priority: 0.6,
+      images: [`${site.url}${images[i.image].file}`],
     })),
     { url: `${site.url}/process`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },
     { url: `${site.url}/about`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },

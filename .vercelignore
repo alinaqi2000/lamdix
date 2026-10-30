@@ -1,0 +1,6 @@
+.bun-cache
+artifacts
+node_modules
+.next
+tsconfig.tsbuildinfo
+scripts/*.png
