@@ -132,7 +132,8 @@ for (const w of [320, 390, 768, 1440]) {
 // ---------- mobile nav ----------
 {
   const mob = await newPage({ viewport: { width: 390, height: 844 } });
-  await mob.goto(BASE, { waitUntil: "domcontentloaded" });
+  await mob.goto(BASE, { waitUntil: "networkidle" });
+  await mob.waitForTimeout(700);
   const toggle = mob.locator(".nav-toggle");
   ok("mobile toggle visible", await toggle.isVisible());
   await toggle.click();
@@ -153,17 +154,18 @@ for (const w of [320, 390, 768, 1440]) {
 // ---------- tabs keyboard ----------
 {
   const page = await newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
   const tabs = page.locator('[role="tab"]');
   await tabs.nth(0).focus();
   await page.keyboard.press("ArrowRight");
-  let heading = await page.locator('[role="tabpanel"]:not([hidden]) .system-text h3').textContent();
+  let heading = await page.locator('[role="tabpanel"]:not([inert]) .system-text h3').textContent();
   ok("ArrowRight selects next tab", heading === "The applied AI layer", `h3="${heading}"`);
   await page.keyboard.press("End");
-  heading = await page.locator('[role="tabpanel"]:not([hidden]) .system-text h3').textContent();
+  heading = await page.locator('[role="tabpanel"]:not([inert]) .system-text h3').textContent();
   ok("End selects last tab", heading === "The customer operations layer", `h3="${heading}"`);
   await page.keyboard.press("Home");
-  heading = await page.locator('[role="tabpanel"]:not([hidden]) .system-text h3').textContent();
+  heading = await page.locator('[role="tabpanel"]:not([inert]) .system-text h3').textContent();
   ok("Home selects first tab", heading === "The product layer", `h3="${heading}"`);
   const panels = await page.locator('[role="tabpanel"]').count();
   const controls = await page.evaluate(() =>
@@ -176,7 +178,8 @@ for (const w of [320, 390, 768, 1440]) {
 // ---------- form: empty submit does not POST ----------
 {
   const page = await newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(BASE + "/contact", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/contact", { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
   let posted = 0;
   await page.route("**/api/contact", (r) => { posted++; r.continue(); });
   await page.locator('button[type="submit"]').click();
@@ -192,7 +195,8 @@ for (const w of [320, 390, 768, 1440]) {
 // ---------- form: mocked success resets + button disables ----------
 {
   const page = await newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(BASE + "/contact", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/contact", { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
   await page.route("**/api/contact", (route) =>
     route.fulfill({
       status: 200, contentType: "application/json",
@@ -226,7 +230,8 @@ for (const w of [320, 390, 768, 1440]) {
 // ---------- form: mocked validation error retains data ----------
 {
   const page = await newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(BASE + "/contact", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/contact", { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
   await page.route("**/api/contact", (route) =>
     route.fulfill({
       status: 400, contentType: "application/json",

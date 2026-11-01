@@ -1,8 +1,7 @@
-export function LambdaMark({ size = 34 }: { size?: number }) {
+export function LambdaMark() {
   return (
     <svg
-      width={size}
-      height={size}
+      className="lambda-mark"
       viewBox="0 0 280 290"
       fill="none"
       aria-hidden="true"
@@ -20,12 +19,11 @@ export function LambdaMark({ size = 34 }: { size?: number }) {
   );
 }
 
-export function Wordmark({ size = 34 }: { size?: number }) {
-  const fs = Math.round(size * 0.94);
+export function Wordmark({ size }: { size?: number }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: Math.round(size * 0.16) }}>
-      <LambdaMark size={size} />
-      <span className="wordmark" style={{ fontSize: fs, lineHeight: 1 }}>
+    <span className="wordmark-wrap" style={size ? { fontSize: size } : undefined}>
+      <LambdaMark />
+      <span className="wordmark">
         Lamd<span className="i-teal">i</span><span style={{ color: "var(--teal)" }}>x</span>
       </span>
     </span>

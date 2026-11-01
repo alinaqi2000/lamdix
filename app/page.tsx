@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/metadata";
 import { Hero3DLoader } from "@/components/Hero3DLoader";
 import { SystemPanel } from "@/components/SystemPanel";
-import { Reveal, Spotlight } from "@/components/Reveal";
+import { Reveal } from "@/components/Reveal";
 import { IndustriesCarousel } from "@/components/IndustriesCarousel";
 import { CtaBand } from "@/components/CtaBand";
 import { Icon, IconBox } from "@/components/Icon";
@@ -97,10 +97,12 @@ export default function Home() {
 
       <section className="section" id="capabilities">
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">Capabilities</p>
-            <h2 className="h2">Six disciplines, <em className="serif-em">one system.</em></h2>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">Capabilities</p>
+              <h2 className="h2">Six disciplines, <em className="serif-em">one system.</em></h2>
+            </div>
+          </Reveal>
           <div className="bento">
             {services.map((s, i) => {
               const cls = i < 2 ? (i === 0 ? "bento-big" : "bento-med") : "bento-sm";
@@ -121,66 +123,40 @@ export default function Home() {
 
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">The model</p>
-            <h2 className="h2">One connected <em className="serif-em">system.</em></h2>
-            <p className="lede" style={{ marginTop: 20 }}>
-              Software, intelligence, and operations are usually bought separately
-              and never quite connect. We design them as layers of a single system.
-            </p>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">The model</p>
+              <h2 className="h2">One connected <em className="serif-em">system.</em></h2>
+              <p className="lede" style={{ marginTop: 20 }}>
+                Software, intelligence, and operations are usually bought separately
+                and never quite connect. We design them as layers of a single system.
+              </p>
+            </div>
+          </Reveal>
           <SystemPanel />
         </div>
       </section>
 
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">Industries</p>
-            <h2 className="h2">Built for <em className="serif-em">your world.</em></h2>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">Industries</p>
+              <h2 className="h2">Built for <em className="serif-em">your world.</em></h2>
+            </div>
+          </Reveal>
         </div>
         <IndustriesCarousel />
       </section>
 
-      <section className="section" id="approach" style={{ paddingTop: 0 }}>
-        <div className="wrap">
-          <div className="approach-head">
-            <p className="eyebrow">Approach</p>
-            <h2 className="h2" style={{ margin: "18px 0 20px" }}>Disciplined, then <em className="serif-em">ambitious.</em></h2>
-            <p className="lede" style={{ maxWidth: 640 }}>Four phases, honest deliverables, and a working relationship built on visibility.</p>
-            <div style={{ marginTop: 28 }}><Link href="/process" className="link-arrow">See the full process <Icon icon="ArrowRightSolid" size={14} /></Link></div>
-          </div>
-          <div className="approach-rail">
-            <div className="approach-grid">
-            {[
-              { i: "TargetUserSolid", n: "01", t: "Discover", p: "Map the real problem — users, systems, constraints.", d: ["Plan", "Scope", "Risks"] },
-              { i: "Layout9Solid", n: "02", t: "Design", p: "Architecture and flows designed before code.", d: ["Architecture", "Interfaces", "Decisions"] },
-              { i: "Code1Solid", n: "03", t: "Engineer", p: "Visible increments with tests on risk paths.", d: ["Builds", "Tests", "Docs"] },
-              { i: "RefreshCircle1ClockwiseSolid", n: "04", t: "Evolve", p: "Deployment, monitoring, steady iteration.", d: ["Pipelines", "Runbooks", "Care"] },
-            ].map((s, idx) => (
-              <Reveal key={s.n} delay={idx * 0.08}>
-                <Spotlight className="approach-card">
-                  <span className="approach-node" />
-                  <span className="approach-num">{s.n}</span>
-                  <IconBox icon={s.i} />
-                  <h3 className="h3">{s.t}</h3>
-                  <p>{s.p}</p>
-                  <div className="chips">{s.d.map((c) => <span key={c} className="chip">{c}</span>)}</div>
-                </Spotlight>
-              </Reveal>
-            ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">Principles</p>
-            <h2 className="h2">How we <em className="serif-em">work.</em></h2>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">Principles</p>
+              <h2 className="h2">How we <em className="serif-em">work.</em></h2>
+            </div>
+          </Reveal>
           <div className="prin-grid">
             {principles.map((p, i) => (
               <Reveal key={p.t} delay={i * 0.06} className="prin p-card p-edge">
@@ -195,10 +171,12 @@ export default function Home() {
 
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">Insights</p>
-            <h2 className="h2">Notes from <em className="serif-em">the practice.</em></h2>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">Insights</p>
+              <h2 className="h2">Notes from <em className="serif-em">the practice.</em></h2>
+            </div>
+          </Reveal>
           <div className="insight-grid">
             {featured.map((a) => (
               <Link className="insight-card p-card" key={a.slug} href={`/insights/${a.slug}`} style={{ paddingTop: 0, borderTop: "none" }}>
@@ -222,10 +200,12 @@ export default function Home() {
 
       <section className="section faq" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <p className="eyebrow">Questions</p>
-            <h2 className="h2">Asked, <em className="serif-em">answered.</em></h2>
-          </div>
+          <Reveal>
+            <div className="section-head">
+              <p className="eyebrow">Questions</p>
+              <h2 className="h2">Asked, <em className="serif-em">answered.</em></h2>
+            </div>
+          </Reveal>
           {faqs.map((f) => (
             <details key={f.q}>
               <summary>{f.q}</summary>

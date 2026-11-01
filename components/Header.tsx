@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { motion, useReducedMotion } from "framer-motion";
 import { Logo } from "./Logo";
 import { Icon, IconBox } from "./Icon";
 import { nav, site } from "@/lib/site";
@@ -23,11 +24,26 @@ const MEGA_DESC: Record<string, string> = {
 export function Header() {
   const [open, setOpen] = useState(false);
   const [mega, setMega] = useState(false);
+  const [showMega, setShowMega] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const megaRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const megaLiRef = useRef<HTMLLIElement>(null);
+  const megaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverOpened = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const reduced = useReducedMotion();
+
+  const clearMegaTimer = () => {
+    if (megaTimer.current) { clearTimeout(megaTimer.current); megaTimer.current = null; }
+  };
+  const scheduleMegaClose = () => {
+    clearMegaTimer();
+    megaTimer.current = setTimeout(() => setMega(false), 180);
+  };
+
+  useEffect(() => () => clearMegaTimer(), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -39,6 +55,11 @@ export function Header() {
   useEffect(() => { setOpen(false); setMega(false); }, [pathname]);
 
   useEffect(() => {
+    if (mega) setShowMega(true);
+    else hoverOpened.current = false;
+  }, [mega]);
+
+  useEffect(() => {
     const mq = window.matchMedia("(min-width: 901px)");
     const onChange = (e: MediaQueryListEvent) => { if (e.matches) setOpen(false); };
     mq.addEventListener("change", onChange);
@@ -48,13 +69,22 @@ export function Header() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (mega) setMega(false);
+        if (mega) { setMega(false); triggerRef.current?.focus(); }
         else if (open) { setOpen(false); toggleRef.current?.focus(); }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, mega]);
+
+  useEffect(() => {
+    if (!mega) return;
+    const onDown = (e: PointerEvent) => {
+      if (megaLiRef.current && !megaLiRef.current.contains(e.target as Node)) setMega(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [mega]);
 
   useEffect(() => {
     document.body.classList.toggle("menu-open", open);
@@ -82,50 +112,101 @@ export function Header() {
   return (
     <>
       <header className={`site-header${scrolled ? " scrolled" : ""}`}>
-        <div className="header-pill glass">
+        <div className="header-pill">
           <Link href="/" aria-label="Lamdix — home" onClick={() => setOpen(false)}>
             <Logo />
           </Link>
           <nav aria-label="Primary">
             <ul className="nav-links">
               {nav.map((item) => (
-                <li key={item.href} className="mega-wrap">
+                <li
+                  key={item.href}
+                  className="mega-wrap"
+                  ref={"mega" in item && item.mega ? megaLiRef : undefined}
+                  onPointerEnter={"mega" in item && item.mega ? (e) => {
+                    if (e.pointerType !== "mouse") return;
+                    clearMegaTimer();
+                    hoverOpened.current = true;
+                    setMega(true);
+                  } : undefined}
+                  onPointerLeave={"mega" in item && item.mega ? (e) => {
+                    if (e.pointerType !== "mouse") return;
+                    scheduleMegaClose();
+                  } : undefined}
+                  onBlur={"mega" in item && item.mega ? (e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setMega(false);
+                  } : undefined}
+                >
                   {"mega" in item && item.mega ? (
-                    <div ref={megaRef}
-                      onMouseEnter={() => setMega(true)}
-                      onMouseLeave={() => setMega(false)}>
+                    <>
                       <button
+                        ref={triggerRef}
                         className="mega-trigger"
                         aria-expanded={mega}
-                        aria-haspopup="true"
-                        onClick={() => setMega((v) => !v)}
+                        aria-controls="mega-services"
+                        onClick={(e) => {
+                          if (e.detail > 0 && hoverOpened.current && mega) return;
+                          setMega((v) => !v);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setMega(true);
+                            requestAnimationFrame(() => {
+                              megaLiRef.current?.querySelector<HTMLElement>("#mega-services a")?.focus();
+                            });
+                          }
+                        }}
                       >
                         {item.label}
+                        <span className="mega-chev" aria-hidden="true" />
                       </button>
-                      {mega && (
-                        <div className="mega-menu glass" role="menu">
-                          <div className="mega-grid">
-                            {services.map((s) => (
-                              <Link key={s.slug} href={`/services/${s.slug}`} className="mega-item" role="menuitem" onClick={() => setMega(false)}>
-                                <IconBox icon={serviceExtras[s.slug].icon} size={18} />
-                                <span>
-                                  <b>{s.title}</b>
-                                  <span>{MEGA_DESC[s.slug] ?? ""}</span>
+                      {showMega && (
+                        <motion.div
+                          className="mega-hover"
+                          id="mega-services"
+                          initial={reduced ? { opacity: 0, x: "-50%" } : { opacity: 0, y: -8, scale: 0.985, x: "-50%" }}
+                          animate={
+                            mega
+                              ? reduced ? { opacity: 1, x: "-50%" } : { opacity: 1, y: 0, scale: 1, x: "-50%" }
+                              : reduced ? { opacity: 0, x: "-50%" } : { opacity: 0, y: -8, scale: 0.985, x: "-50%" }
+                          }
+                          transition={{ duration: 0.18, ease: "easeOut" }}
+                          onAnimationComplete={() => { if (!mega) setShowMega(false); }}
+                        >
+                            <div className="mega-card">
+                              <div className="mega-main">
+                                <div className="mega-head">
+                                  <span className="mega-eyebrow">Services</span>
+                                  <Link href="/services" className="mega-all" onClick={() => setMega(false)}>
+                                    All services <Icon icon="ArrowRightSolid" size={12} />
+                                  </Link>
+                                </div>
+                                <div className="mega-grid">
+                                  {services.map((s) => (
+                                    <Link key={s.slug} href={`/services/${s.slug}`} className="mega-item" onClick={() => setMega(false)}>
+                                      <IconBox icon={serviceExtras[s.slug].icon} size={18} />
+                                      <span className="mi-txt">
+                                        <b>{s.title}</b>
+                                        <span>{MEGA_DESC[s.slug] ?? ""}</span>
+                                      </span>
+                                      <Icon icon="ArrowRightSolid" size={14} className="mi-arrow" />
+                                    </Link>
+                                  ))}
+                                </div>
+                              </div>
+                              <Link href="/industries" className="mega-feature p-edge" onClick={() => setMega(false)}>
+                                <span className="tint-img">
+                                  <Image src={images.cityNight.file} alt="" fill sizes="300px" />
                                 </span>
+                                <span className="mf-label">By industry</span>
+                                <b>Solutions shaped to your sector</b>
+                                <span className="mf-link">View industries <Icon icon="ArrowRightSolid" size={12} /></span>
                               </Link>
-                            ))}
-                          </div>
-                          <Link href="/industries" className="mega-feature p-edge" style={{ minHeight: 260 }} onClick={() => setMega(false)}>
-                            <span className="tint-img">
-                              <Image src={images.cityNight.file} alt="" fill sizes="300px" />
-                            </span>
-                            <span className="mf-label">By industry</span>
-                            <b>Solutions shaped to your sector</b>
-                            <span style={{ marginTop: 12, fontSize: 13, color: "var(--teal)", letterSpacing: "0.1em", textTransform: "uppercase" }}>View industries →</span>
-                          </Link>
-                        </div>
+                            </div>
+                        </motion.div>
                       )}
-                    </div>
+                    </>
                   ) : (
                     <Link href={item.href}>{item.label}</Link>
                   )}

@@ -14,27 +14,31 @@ const browser = await chromium.launch();
 // ---------- system tabs: exactly one visible panel per state ----------
 {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.waitForTimeout(600);
   const expected = ["The product layer", "The applied AI layer", "The customer operations layer"];
   for (let i = 0; i < 3; i++) {
     await page.locator('[role="tab"]').nth(i).click();
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(800);
     const vis = await page.evaluate(() => {
+      const vp = document.querySelector(".sys-panels")!.getBoundingClientRect();
       const panels = [...document.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
-      return {
-        visible: panels.filter((p) => {
-          const r = p.getBoundingClientRect();
-          const cs = getComputedStyle(p);
-          return cs.display !== "none" && r.width > 0 && r.height > 0;
-        }).length,
-        hiddenCount: panels.filter((p) => getComputedStyle(p).display === "none").length,
-        heading: panels.find((p) => getComputedStyle(p).display !== "none")
-          ?.querySelector("h3")?.textContent ?? "",
-        mounted: panels.length,
-      };
+      return panels.map((p) => {
+        const r = p.getBoundingClientRect();
+        return {
+          inert: p.hasAttribute("inert"),
+          ariaHidden: p.getAttribute("aria-hidden") === "true",
+          insideVp: r.left >= vp.left - 1 && r.right <= vp.right + 1,
+          heading: p.querySelector("h3")?.textContent ?? "",
+        };
+      });
     });
-    ok(`tab ${i}: one visible, two display:none, correct heading`,
-      vis.visible === 1 && vis.hiddenCount === 2 && vis.mounted === 3 && vis.heading === expected[i],
+    const active = vis.filter((p) => !p.inert);
+    ok(`tab ${i}: one active panel in viewport, correct heading`,
+      active.length === 1 &&
+      active[0].insideVp && !active[0].ariaHidden &&
+      active[0].heading === expected[i] &&
+      vis.filter((p) => p.inert && p.ariaHidden && !p.insideVp).length === 2,
       JSON.stringify(vis));
   }
   await page.screenshot({ path: `${OUT}/desktop-system.png` });
@@ -107,9 +111,9 @@ const browser = await chromium.launch();
   }
   const ctx = await browser.newContext({ javaScriptEnabled: false });
   const pj = await ctx.newPage();
-  await pj.goto(BASE, { waitUntil: "domcontentloaded" });
+  await pj.goto(BASE + "/process", { waitUntil: "domcontentloaded" });
   const vis = await pj.evaluate(() => {
-    const el = [...document.querySelectorAll("*")].find((e) => e.textContent?.trim() === "Discover" && e.tagName === "H3");
+    const el = [...document.querySelectorAll("*")].find((e) => e.textContent?.trim() === "Discover" && /^H[23]$/.test(e.tagName));
     return el ? getComputedStyle(el).opacity : "missing";
   });
   ok("no-JS process steps visible", vis === "1", `opacity=${vis}`);
