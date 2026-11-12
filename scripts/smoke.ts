@@ -36,7 +36,10 @@ const ROUTES = [
 
 await mkdir(OUT, { recursive: true });
 
-const browser = await chromium.launch();
+// Prefer the real GPU via ANGLE-Vulkan when present (SwiftShader fallback keeps
+// CI/headless-only machines working); CPU rasterization makes full-page
+// screenshots of the WebGL hero exceed the 30s capture timeout.
+const browser = await chromium.launch({ args: ["--use-angle=vulkan"] });
 
 async function newPage(ctxOpts = {}) {
   const page = await browser.newPage(ctxOpts);
@@ -276,10 +279,9 @@ for (const w of [320, 390, 768, 1440]) {
   const rm = await newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   await rm.goto(BASE, { waitUntil: "networkidle" });
   await rm.waitForTimeout(1200);
-  const t1 = await rm.evaluate(() => document.querySelector(".sculpt-frame svg")?.getAttribute("style"));
-  await rm.waitForTimeout(1500);
-  const t2 = await rm.evaluate(() => document.querySelector(".sculpt-frame svg")?.getAttribute("style"));
-  ok("reduced motion stops float", t1 === t2);
+  const rmCanvas = await rm.locator(".hero-bg canvas").count();
+  const rmPoster = await rm.locator(".hero-bg .hero-poster").count();
+  ok("reduced motion shows poster without canvas", rmCanvas === 0 && rmPoster === 1);
   await rm.close();
 }
 

@@ -1,511 +1,305 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import {
-  Environment, Lightformer, Float, Center, ContactShadows,
-  PerformanceMonitor, AdaptiveDpr,
-} from "@react-three/drei";
-import { Suspense, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
-import { SVGLoader } from "three/examples/jsm/loaders/SVGLoader.js";
+import { useEffect, useRef } from "react";
 
-type Ctrl = {
-  dragging: boolean;
-  yaw: number; pitch: number; vyaw: number; vpitch: number;
-  hoverX: number; hoverY: number; hoverOn: boolean;
-  mag: number;           // damped hover strength 0..1
-  idle: number;          // time since release
-  intro: number;         // seconds since mount
-  split: number;         // -1 idle, else 0..1 progress
-  shock: number;         // particle impulse to consume
-  heroH: number;
-};
+/* ------------------------------------------------------------------ */
+/* Cloud Field — raw-WebGL fragment-shader hero background             */
+/* Adapted from ThreeUI "Portal Field — Cloud Field" (MIT)             */
+/* (github.com/designcodeio / @designcodeio/threeui), palette shifted   */
+/* from violet/indigo to the Lamdix teal spectrum.                      */
+/* ------------------------------------------------------------------ */
 
-const clamp = THREE.MathUtils.clamp;
-const damp = THREE.MathUtils.damp;
-const eoc = (x: number) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
-const eio = (x: number) => { const c = clamp(x, 0, 1); return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2; };
+const HUE_SHIFT = -1.62; // radians — rotates the violet palette to teal
 
-function shapeFromPath(d: string) {
-  const loader = new SVGLoader();
-  const svg = loader.parse(`<svg xmlns="http://www.w3.org/2000/svg"><path d="${d}"/></svg>`);
-  return SVGLoader.createShapes(svg.paths[0])[0];
+const VERT = /* glsl */ `
+attribute vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+const FRAG = /* glsl */ `
+precision highp float;
+uniform vec2 u_res;
+uniform float u_time;
+uniform vec2 u_mouse;
+
+float hash(float n){ return fract(sin(n)*43758.5453123); }
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+
+float noise(float x){
+  float i = floor(x);
+  float f = fract(x);
+  f = f*f*(3.0-2.0*f);
+  return mix(hash(i), hash(i+1.0), f);
 }
 
-const WHITE_D = "M29 0H80C109 0 126 15 138 42L157 96L54 272H0L110 96L96 59Q92 29 70 29H29Z";
-const TEAL_D = "M165 114L211 234C222 259 245 240 242 223C240 211 234 204 224 202C256 195 282 223 277 249C273 278 238 289 210 278C190 273 181 256 175 240L139 167Z";
+float fbm(float x, float octaves){
+  float val = 0.0;
+  float amp = 0.5;
+  float freq = 1.0;
+  for(int i = 0; i < 6; i++){
+    if(float(i) >= octaves) break;
+    val += amp * noise(x * freq);
+    freq *= 2.17;
+    amp *= 0.48;
+  }
+  return val;
+}
 
-function LambdaMesh({ ctrl, mobile }: { ctrl: React.MutableRefObject<Ctrl>; mobile: boolean }) {
-  const group = useRef<THREE.Group>(null);
-  const white = useRef<THREE.Mesh>(null);
-  const teal = useRef<THREE.Mesh>(null);
-  const tealMat = useRef<THREE.MeshPhysicalMaterial>(null);
-  const whiteMat = useRef<THREE.MeshPhysicalMaterial>(null);
-  const t = useRef(0);
+float meteor(vec2 uv, float t){
+  float cycle = mod(t * 0.15, 1.0);
+  float seed = floor(t * 0.15);
+  float h = hash(seed * 7.31);
+  float h2 = hash(seed * 13.17);
+  if(h > 0.30) return 0.0;
+  vec2 start = vec2(0.2 + h2 * 0.6, 0.7 + h * 0.25);
+  vec2 dir = normalize(vec2(1.0, -0.6 - h * 0.3));
+  float progress = smoothstep(0.0, 0.7, cycle);
+  vec2 pos = start + dir * progress * 0.5;
+  vec2 toP = uv - pos;
+  float along = dot(toP, dir);
+  float perp = length(toP - dir * along);
+  float trail = smoothstep(0.0, -0.12, along) * smoothstep(-0.18, -0.04, along);
+  float core = smoothstep(0.003, 0.0, perp) * trail;
+  float glow = smoothstep(0.012, 0.0, perp) * trail * 0.3;
+  float fade = smoothstep(0.0, 0.1, cycle) * smoothstep(0.8, 0.55, cycle);
+  return (core + glow) * fade;
+}
 
-  const { whiteGeo, tealGeo } = useMemo(() => {
-    const opts: THREE.ExtrudeGeometryOptions = {
-      depth: 42, bevelEnabled: true, bevelThickness: 6, bevelSize: 5, bevelSegments: 6, curveSegments: 24,
+float stars(vec2 uv, float density){
+  vec2 cell = floor(uv * density);
+  vec2 sub = fract(uv * density);
+  float h = hash2(cell);
+  float brightness = step(0.975, h);
+  float size = 0.025 + h * 0.045;
+  float d = length(sub - vec2(hash2(cell + 100.0), hash2(cell + 200.0)));
+  float star = brightness * smoothstep(size, 0.0, d);
+  star *= 0.5 + 0.5 * sin(u_time * (1.0 + h * 3.0) + h * 6.28);
+  return star;
+}
+
+vec3 hueShift(vec3 c, float a){
+  const vec3 k = vec3(0.57735);
+  float cs = cos(a);
+  return c * cs + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cs);
+}
+
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_res;
+  float aspect = u_res.x / u_res.y;
+
+  vec2 mouse = u_mouse * 2.0 - 1.0;
+
+  vec3 skyTop    = vec3(0.015, 0.012, 0.045);
+  vec3 skyMid    = vec3(0.035, 0.025, 0.085);
+  vec3 skyBottom = vec3(0.065, 0.045, 0.14);
+
+  float skyGrad = uv.y;
+  vec3 col = mix(skyBottom, skyMid, smoothstep(0.3, 0.6, skyGrad));
+  col = mix(col, skyTop, smoothstep(0.6, 1.0, skyGrad));
+
+  float horizonY = 0.35;
+  float horizonGlow = exp(-pow((uv.y - horizonY) * 3.8, 2.0));
+  col += vec3(0.15, 0.07, 0.26) * horizonGlow * 0.8;
+
+  float centerGlow = exp(-pow((uv.x - 0.5) * 1.5, 2.0)) * exp(-pow((uv.y - horizonY) * 4.0, 2.0));
+  col += vec3(0.14, 0.10, 0.24) * centerGlow * 0.6;
+
+  float starField = stars(uv * vec2(aspect, 1.0), 60.0)
+                  + stars(uv * vec2(aspect, 1.0) + 500.0, 100.0) * 0.7
+                  + stars(uv * vec2(aspect, 1.0) + 900.0, 160.0) * 0.4;
+
+  float starMask = 1.0;
+  float xC, yS, prof, mTop, mtn, rDist, rGlow, rAmb;
+  vec3 lC;
+
+  // Layer 0
+  lC = vec3(0.14, 0.10, 0.24);
+  xC = uv.x * aspect * 1.6 + u_time * 0.006 + mouse.x * 0.010;
+  yS = mouse.y * 0.003;
+  prof = fbm(xC, 5.0) * 0.10 + fbm(xC * 0.3 + 17.0, 3.0) * 0.07;
+  mTop = 0.40 + prof + yS;
+  mtn = smoothstep(mTop + 0.003, mTop - 0.001, uv.y);
+  rDist = abs(uv.y - mTop);
+  rGlow = smoothstep(0.012, 0.0, rDist) * 0.18;
+  rAmb = smoothstep(0.04, 0.0, rDist) * 0.06;
+  col = mix(col, lC, mtn);
+  col += vec3(0.20, 0.10, 0.35) * rGlow;
+  col += vec3(0.12, 0.06, 0.22) * rAmb;
+  starMask *= (1.0 - mtn);
+
+  // Layer 1
+  lC = vec3(0.11, 0.07, 0.19);
+  xC = uv.x * aspect * 2.0 + u_time * 0.012 + mouse.x * 0.020;
+  yS = mouse.y * 0.006;
+  prof = fbm(xC, 5.0) * 0.13 + fbm(xC * 0.3 + 34.0, 3.0) * 0.091;
+  mTop = 0.33 + prof + yS;
+  mtn = smoothstep(mTop + 0.003, mTop - 0.001, uv.y);
+  rDist = abs(uv.y - mTop);
+  rGlow = smoothstep(0.012, 0.0, rDist) * 0.15;
+  rAmb = smoothstep(0.04, 0.0, rDist) * 0.045;
+  col = mix(col, lC, mtn);
+  col += vec3(0.20, 0.10, 0.35) * rGlow;
+  col += vec3(0.12, 0.06, 0.22) * rAmb;
+  starMask *= (1.0 - mtn);
+
+  // Layer 2
+  lC = vec3(0.08, 0.05, 0.14);
+  xC = uv.x * aspect * 2.6 + u_time * 0.020 + mouse.x * 0.034;
+  yS = mouse.y * 0.010;
+  prof = fbm(xC, 5.0) * 0.16 + fbm(xC * 0.3 + 51.0, 3.0) * 0.112;
+  mTop = 0.26 + prof + yS;
+  mtn = smoothstep(mTop + 0.003, mTop - 0.001, uv.y);
+  rDist = abs(uv.y - mTop);
+  rGlow = smoothstep(0.012, 0.0, rDist) * 0.12;
+  rAmb = smoothstep(0.04, 0.0, rDist) * 0.03;
+  col = mix(col, lC, mtn);
+  col += vec3(0.20, 0.10, 0.35) * rGlow;
+  col += vec3(0.12, 0.06, 0.22) * rAmb;
+  starMask *= (1.0 - mtn);
+
+  // Layer 3
+  lC = vec3(0.05, 0.03, 0.09);
+  xC = uv.x * aspect * 3.2 + u_time * 0.030 + mouse.x * 0.050;
+  yS = mouse.y * 0.015;
+  prof = fbm(xC, 5.0) * 0.14 + fbm(xC * 0.3 + 68.0, 3.0) * 0.098;
+  mTop = 0.18 + prof + yS;
+  mtn = smoothstep(mTop + 0.003, mTop - 0.001, uv.y);
+  rDist = abs(uv.y - mTop);
+  rGlow = smoothstep(0.012, 0.0, rDist) * 0.09;
+  col = mix(col, lC, mtn);
+  col += vec3(0.20, 0.10, 0.35) * rGlow;
+  starMask *= (1.0 - mtn);
+
+  // Layer 4
+  lC = vec3(0.03, 0.018, 0.055);
+  xC = uv.x * aspect * 4.0 + u_time * 0.044 + mouse.x * 0.070;
+  yS = mouse.y * 0.021;
+  prof = fbm(xC, 5.0) * 0.11 + fbm(xC * 0.3 + 85.0, 3.0) * 0.077;
+  mTop = 0.09 + prof + yS;
+  mtn = smoothstep(mTop + 0.003, mTop - 0.001, uv.y);
+  rDist = abs(uv.y - mTop);
+  rGlow = smoothstep(0.012, 0.0, rDist) * 0.06;
+  col = mix(col, lC, mtn);
+  col += vec3(0.20, 0.10, 0.35) * rGlow;
+  starMask *= (1.0 - mtn);
+
+  col += vec3(0.9, 0.8, 1.0) * starField * starMask;
+  float met = meteor(uv * vec2(aspect, 1.0), u_time);
+  col += vec3(0.8, 0.6, 1.0) * met * starMask;
+
+  float vig = 1.0 - 0.3 * pow(length((uv - 0.5) * vec2(1.1, 1.6)), 2.0);
+  col *= vig;
+
+  float haze = exp(-pow((uv.y - 0.33) * 5.0, 2.0)) * 0.05;
+  col += vec3(0.15, 0.10, 0.30) * haze;
+
+  col = pow(col, vec3(0.95));
+  col = hueShift(col, ${HUE_SHIFT});
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+export function Hero3D({ frameloop = "always" }: { frameloop?: "always" | "never" | "demand" }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef(frameloop);
+
+  useEffect(() => {
+    frameRef.current = frameloop;
+  }, [frameloop]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const gl = canvas.getContext("webgl", {
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+      powerPreference: "low-power",
+    });
+    if (!gl) return;
+
+    const compile = (type: number, src: string) => {
+      const s = gl.createShader(type)!;
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
     };
-    // SVG paths are y-down: flip the geometry once so no group transform can undo it.
-    // Negative scale inverts winding — swap each triangle's verts 1<->2 before recomputing normals.
-    const flipY = (g: THREE.ExtrudeGeometry) => {
-      g.scale(1, -1, 1);
-      const p = g.attributes.position;
-      for (let i = 0; i < p.count; i += 3) {
-        for (let c = 0; c < 3; c++) {
-          const a = p.getComponent(i + 1, c);
-          p.setComponent(i + 1, c, p.getComponent(i + 2, c));
-          p.setComponent(i + 2, c, a);
-        }
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) return;
+    const prog = gl.createProgram()!;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, "a_pos");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uRes = gl.getUniformLocation(prog, "u_res");
+    const uTime = gl.getUniformLocation(prog, "u_time");
+    const uMouse = gl.getUniformLocation(prog, "u_mouse");
+
+    const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      const d = dpr();
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
+      canvas.width = Math.max(1, Math.round(w * d));
+      canvas.height = Math.max(1, Math.round(h * d));
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    resize();
+
+    let mx = 0.5, my = 0.5, smx = 0.5, smy = 0.5;
+    const onMove = (e: PointerEvent) => {
+      mx = e.clientX / window.innerWidth;
+      my = 1.0 - e.clientY / window.innerHeight;
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+
+    let raf = 0;
+    let drewStill = false;
+    const draw = (t: number) => {
+      smx += (mx - smx) * 0.04;
+      smy += (my - smy) * 0.04;
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, t);
+      gl.uniform2f(uMouse, smx, smy);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
+    const loop = (ms: number) => {
+      if (frameRef.current === "always") {
+        drewStill = false;
+        draw(ms * 0.001);
+      } else if (!drewStill) {
+        drewStill = true;
+        draw(30); // single still frame while paused / reduced
       }
-      g.computeVertexNormals();
+      raf = requestAnimationFrame(loop);
     };
-    const w = new THREE.ExtrudeGeometry(shapeFromPath(WHITE_D), opts);
-    const tg = new THREE.ExtrudeGeometry(shapeFromPath(TEAL_D), opts);
-    flipY(w);
-    flipY(tg);
-    const box = new THREE.Box3()
-      .setFromBufferAttribute(w.attributes.position as THREE.BufferAttribute)
-      .union(new THREE.Box3().setFromBufferAttribute(tg.attributes.position as THREE.BufferAttribute));
-    const c = box.getCenter(new THREE.Vector3());
-    w.translate(-c.x, -c.y, -c.z);
-    tg.translate(-c.x, -c.y, -c.z);
-    return { whiteGeo: w, tealGeo: tg };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onMove);
+      ro.disconnect();
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    };
   }, []);
 
-  useFrame((_, delta) => {
-    const c = ctrl.current;
-    if (!group.current || !white.current || !teal.current) return;
-    const dt = Math.min(delta, 0.05);
-    t.current += dt;
-    c.intro += dt;
-
-    // --- intro assembly: fly together (~1.0s) then a 360° spin (~0.4s) ---
-    const a = eoc(c.intro / 1.0);
-    const spin = eio((c.intro - 1.0) / 0.4) * Math.PI * 2;
-    white.current.position.set(-170 * (1 - a), 120 * (1 - a), -28 * (1 - a));
-    teal.current.position.set(170 * (1 - a), -120 * (1 - a), 28 * (1 - a));
-    const sc = 0.7 + 0.3 * a;
-    white.current.scale.setScalar(sc);
-    teal.current.scale.setScalar(sc);
-    white.current.rotation.z = -0.5 * (1 - a);
-    teal.current.rotation.z = 0.5 * (1 - a);
-    const op = c.intro < 1.0 ? a : 1;
-    if (whiteMat.current) { whiteMat.current.transparent = c.intro < 1.0; whiteMat.current.opacity = op; }
-    if (tealMat.current) { tealMat.current.transparent = c.intro < 1.15; tealMat.current.opacity = op; }
-
-    // --- split & reassemble (1.1s round trip): sideways/diagonal, small Z ---
-    let sep = 0;
-    if (c.split >= 0) {
-      c.split += dt / 1.1;
-      if (c.split >= 1) c.split = -1;
-      else sep = Math.sin(Math.PI * Math.min(c.split, 1));
-    }
-    white.current.position.z += 28 * sep;
-    white.current.position.x += -70 * sep;
-    white.current.position.y += 70 * sep;
-    teal.current.position.z += -28 * sep;
-    teal.current.position.x += 70 * sep;
-    teal.current.position.y += -70 * sep;
-    white.current.rotation.z += 0.12 * sep;
-    teal.current.rotation.z += -0.12 * sep;
-
-    // --- hover magnet strength ---
-    c.mag = damp(c.mag, c.hoverOn && !c.dragging ? 1 : 0, 5, dt);
-
-    // --- drag inertia + ease back to sway after idle ---
-    if (!c.dragging) {
-      c.idle += dt;
-      c.yaw += c.vyaw * dt;
-      c.pitch = clamp(c.pitch + c.vpitch * dt, -0.5, 0.5);
-      c.vyaw = damp(c.vyaw, 0, 2.2, dt);
-      c.vpitch = damp(c.vpitch, 0, 2.2, dt);
-      if (c.idle > 1.5) {
-        c.yaw = damp(c.yaw, 0, 1.4, dt);
-        c.pitch = damp(c.pitch, 0, 1.4, dt);
-      }
-    }
-
-    // --- scroll-linked tilt / rise / shrink ---
-    const sp = c.heroH > 0 ? clamp(window.scrollY / c.heroH, 0, 1) : 0;
-    group.current.position.y = 30 * sp;
-    group.current.scale.setScalar(1 - 0.1 * sp);
-
-    // --- compose rotation: resting sway + intro spin + drag + hover lean + scroll tilt ---
-    const swayY = Math.sin(t.current * 0.35) * 0.22;
-    const swayX = Math.sin(t.current * 0.22) * 0.06;
-    group.current.rotation.y = swayY + spin + c.yaw + c.mag * c.hoverX * 0.16;
-    group.current.rotation.x = swayX + c.pitch + sp * 0.5 - c.mag * c.hoverY * 0.1;
-
-    // --- tail glow rises on hover / click ---
-    if (tealMat.current) tealMat.current.emissiveIntensity = 0.55 + c.mag * 0.55 + sep * 0.9;
-  });
-
   return (
-    <Float speed={1.2} rotationIntensity={0.12} floatIntensity={0.7}>
-      <group ref={group}>
-        <mesh ref={white} geometry={whiteGeo}>
-          <meshPhysicalMaterial ref={whiteMat} color="#f4f1ea" metalness={0.1} roughness={0.25} clearcoat={1} clearcoatRoughness={0.2} />
-        </mesh>
-        <mesh ref={teal} geometry={tealGeo}>
-          <meshPhysicalMaterial
-            ref={tealMat}
-            color="#26c9bb"
-            emissive="#0d5c55"
-            emissiveIntensity={0.55}
-            metalness={0.15}
-            roughness={0.18}
-            transmission={mobile ? 0 : 0.35}
-            thickness={mobile ? 0 : 30}
-            attenuationColor="#26c9bb"
-            attenuationDistance={90}
-            clearcoat={1}
-            clearcoatRoughness={0.12}
-            ior={1.4}
-          />
-        </mesh>
-      </group>
-    </Float>
-  );
-}
-
-function Rings({ ctrl }: { ctrl: React.MutableRefObject<Ctrl> }) {
-  const g1 = useRef<THREE.Group>(null);
-  const g2 = useRef<THREE.Group>(null);
-  const sat = useRef<THREE.Mesh>(null);
-  const t = useRef(0);
-  useFrame((_, delta) => {
-    const c = ctrl.current;
-    const dt = Math.min(delta, 0.05);
-    t.current += dt * (1 + c.mag * 1.6);
-    if (g1.current) g1.current.rotation.z = t.current * 0.3;
-    if (g2.current) g2.current.rotation.z = -t.current * 0.22;
-    if (sat.current) {
-      const th = t.current * 0.9;
-      sat.current.position.set(Math.cos(th) * 168, Math.sin(th) * 168, 0);
-    }
-  });
-  return (
-    <>
-      <group ref={g1} rotation={[Math.PI / 3, 0.4, 0]}>
-        <mesh>
-          <torusGeometry args={[168, 0.8, 8, 96]} />
-          <meshBasicMaterial color="#26c9bb" transparent opacity={0.22} blending={THREE.AdditiveBlending} depthWrite={false} />
-        </mesh>
-        <mesh ref={sat}>
-          <sphereGeometry args={[4, 16, 16]} />
-          <meshBasicMaterial color="#8fe8de" transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
-        </mesh>
-      </group>
-      <group ref={g2} rotation={[-Math.PI / 4, -0.5, 0.3]}>
-        <mesh>
-          <torusGeometry args={[192, 0.6, 8, 96]} />
-          <meshBasicMaterial color="#f4f1ea" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
-        </mesh>
-      </group>
-    </>
-  );
-}
-
-function ShockRing({ ctrl }: { ctrl: React.MutableRefObject<Ctrl> }) {
-  const ref = useRef<THREE.Mesh>(null);
-  const mat = useRef<THREE.MeshBasicMaterial>(null);
-  useFrame(() => {
-    const c = ctrl.current;
-    if (!ref.current || !mat.current) return;
-    const on = c.split >= 0;
-    ref.current.visible = on;
-    if (on) {
-      const p = Math.min(c.split, 1);
-      const s = 30 + p * 280;
-      ref.current.scale.set(s, s, 1);
-      mat.current.opacity = 0.5 * (1 - p);
-    }
-  });
-  return (
-    <mesh ref={ref} visible={false}>
-      <ringGeometry args={[0.94, 1, 96]} />
-      <meshBasicMaterial ref={mat} color="#26c9bb" transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} />
-    </mesh>
-  );
-}
-
-function Halo({ ctrl }: { ctrl: React.MutableRefObject<Ctrl> }) {
-  const mat = useRef<THREE.SpriteMaterial>(null);
-  const t = useRef(0);
-  const tex = useMemo(() => {
-    const cv = document.createElement("canvas");
-    cv.width = cv.height = 256;
-    const x = cv.getContext("2d")!;
-    const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
-    g.addColorStop(0, "rgba(38,201,187,0.55)");
-    g.addColorStop(0.45, "rgba(38,201,187,0.16)");
-    g.addColorStop(1, "rgba(38,201,187,0)");
-    x.fillStyle = g;
-    x.fillRect(0, 0, 256, 256);
-    const tt = new THREE.CanvasTexture(cv);
-    return tt;
-  }, []);
-  useFrame((_, delta) => {
-    const c = ctrl.current;
-    t.current += Math.min(delta, 0.05);
-    if (!mat.current) return;
-    const sep = c.split >= 0 ? Math.sin(Math.PI * Math.min(c.split, 1)) : 0;
-    mat.current.opacity = 0.4 + 0.06 * Math.sin(t.current * 1.3) + c.mag * 0.22 + sep * 0.35;
-  });
-  return (
-    <sprite position={[0, 0, -160]} scale={[420, 420, 1]}>
-      <spriteMaterial ref={mat} map={tex} transparent opacity={0.4} blending={THREE.AdditiveBlending} depthWrite={false} />
-    </sprite>
-  );
-}
-
-function Particles({ ctrl, count }: { ctrl: React.MutableRefObject<Ctrl>; count: number }) {
-  const ref = useRef<THREE.Points>(null);
-  const { geo, homes, vels } = useMemo(() => {
-    const pos = new Float32Array(count * 3);
-    const col = new Float32Array(count * 3);
-    const pha = new Float32Array(count);
-    const teal = new THREE.Color("#26c9bb"), paper = new THREE.Color("#f4f1ea"), tmp = new THREE.Color();
-    for (let i = 0; i < count; i++) {
-      const r = 190 + Math.random() * 170;
-      const a = Math.random() * Math.PI * 2;
-      const b = Math.acos(2 * Math.random() - 1);
-      pos[i * 3] = Math.cos(a) * Math.sin(b) * r;
-      pos[i * 3 + 1] = Math.cos(b) * r * 0.8;
-      pos[i * 3 + 2] = Math.sin(a) * Math.sin(b) * r * 0.4;
-      tmp.copy(Math.random() < 0.6 ? teal : paper).multiplyScalar(0.5 + Math.random() * 0.6);
-      col[i * 3] = tmp.r; col[i * 3 + 1] = tmp.g; col[i * 3 + 2] = tmp.b;
-      pha[i] = Math.random();
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(pos.slice(), 3));
-    geo.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
-    geo.setAttribute("aPhase", new THREE.BufferAttribute(pha, 1));
-    return { geo, homes: pos, vels: new Float32Array(count * 3) };
-  }, [count]);
-
-  const mat = useMemo(() => new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uSize: { value: 3.0 } },
-    vertexShader: `
-      attribute vec3 aColor;
-      attribute float aPhase;
-      uniform float uTime;
-      uniform float uSize;
-      varying float vA;
-      varying vec3 vC;
-      void main() {
-        vC = aColor;
-        vA = 0.5 + 0.5 * sin(uTime * 2.0 + aPhase * 6.2831);
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = uSize * (0.6 + 0.9 * vA) * (320.0 / -mv.z);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `
-      varying float vA;
-      varying vec3 vC;
-      void main() {
-        float d = length(gl_PointCoord - 0.5);
-        if (d > 0.5) discard;
-        gl_FragColor = vec4(vC, vA * (1.0 - d * 2.0));
-      }`,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }), []);
-
-  const v = useMemo(() => new THREE.Vector3(), []);
-  const pw = useMemo(() => new THREE.Vector3(), []);
-
-  useFrame((state, delta) => {
-    const c = ctrl.current;
-    const dt = Math.min(delta, 0.05);
-    mat.uniforms.uTime.value += dt;
-    if (ref.current) ref.current.rotation.y += dt * 0.03;
-
-    // pointer projected onto z=0 plane
-    let px = 0, py = 0, active = false;
-    if (c.hoverOn) {
-      v.set(c.hoverX, c.hoverY, 0.5).unproject(state.camera).sub(state.camera.position).normalize();
-      const tt = -state.camera.position.z / v.z;
-      pw.copy(state.camera.position).addScaledVector(v, tt);
-      px = pw.x; py = pw.y; active = true;
-    }
-
-    const attr = ref.current?.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
-    if (!attr) return;
-    const arr = attr.array as Float32Array;
-    const R = 90;
-    for (let i = 0; i < count; i++) {
-      const ix = i * 3;
-      // spring home
-      vels[ix] += (homes[ix] - arr[ix]) * 4.5 * dt;
-      vels[ix + 1] += (homes[ix + 1] - arr[ix + 1]) * 4.5 * dt;
-      vels[ix + 2] += (homes[ix + 2] - arr[ix + 2]) * 4.5 * dt;
-      // click shockwave impulse
-      if (c.shock > 0) {
-        const dx = arr[ix], dy = arr[ix + 1], dz = arr[ix + 2];
-        const l = Math.hypot(dx, dy, dz) || 1;
-        vels[ix] += (dx / l) * 220 * c.shock;
-        vels[ix + 1] += (dy / l) * 220 * c.shock;
-        vels[ix + 2] += (dz / l) * 220 * c.shock;
-      }
-      // cursor repulsion on z=0 plane
-      if (active) {
-        const dx = arr[ix] - px, dy = arr[ix + 1] - py;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < R * R && d2 > 0.01) {
-          const d = Math.sqrt(d2);
-          const f = ((R - d) / R) * 900 * dt;
-          vels[ix] += (dx / d) * f;
-          vels[ix + 1] += (dy / d) * f;
-        }
-      }
-      const dk = Math.exp(-3.2 * dt);
-      vels[ix] *= dk; vels[ix + 1] *= dk; vels[ix + 2] *= dk;
-      arr[ix] += vels[ix] * dt * 60 * 0.016;
-      arr[ix + 1] += vels[ix + 1] * dt * 60 * 0.016;
-      arr[ix + 2] += vels[ix + 2] * dt * 60 * 0.016;
-    }
-    if (c.shock > 0) c.shock = 0;
-    attr.needsUpdate = true;
-  });
-
-  return <points ref={ref} geometry={geo} material={mat} />;
-}
-
-// lambda bounding radius (~150 incl. bevel) must sit inside the frame w/ ~12% pad
-const FIT_R = 150;
-const FIT_PAD = 0.76; // ~12% padding on every side
-
-function FitRig({ children }: { children: React.ReactNode }) {
-  const ref = useRef<THREE.Group>(null);
-  const v = useMemo(() => new THREE.Vector3(), []);
-  useFrame((state) => {
-    if (!ref.current) return;
-    const vp = state.viewport.getCurrentViewport(state.camera, v.set(0, 0, 0));
-    ref.current.scale.setScalar((Math.min(vp.width, vp.height) * FIT_PAD) / (2 * FIT_R));
-  });
-  return <group ref={ref}>{children}</group>;
-}
-
-function Scene({ ctrl, mobile, count }: { ctrl: React.MutableRefObject<Ctrl>; mobile: boolean; count: number }) {
-  return (
-    <>
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[140, 220, 160]} intensity={1.2} />
-      <FitRig>
-        <Center>
-          <LambdaMesh ctrl={ctrl} mobile={mobile} />
-        </Center>
-        <Rings ctrl={ctrl} />
-        <ShockRing ctrl={ctrl} />
-      </FitRig>
-      <Halo ctrl={ctrl} />
-      <Particles ctrl={ctrl} count={count} />
-      <ContactShadows position={[0, -180, 0]} opacity={0.35} scale={640} blur={2.2} far={240} frames={90} color="#04120f" />
-      <Environment resolution={64}>
-        <Lightformer intensity={3.2} position={[0, 4, 5]} scale={[10, 4, 1]} />
-        <Lightformer intensity={1.6} color="#ffffff" position={[2, 2, 6]} scale={[4, 4, 1]} />
-        <Lightformer intensity={1.4} color="#26c9bb" position={[-4, -1, 4]} scale={[3, 8, 1]} />
-        <Lightformer intensity={0.9} position={[5, -2, 3]} scale={[2, 6, 1]} />
-      </Environment>
-    </>
-  );
-}
-
-export function Hero3D({ running = true, onInteract }: { running?: boolean; onInteract?: () => void }) {
-  const ctrl = useRef<Ctrl>({
-    dragging: false, yaw: 0, pitch: 0, vyaw: 0, vpitch: 0,
-    hoverX: 0, hoverY: 0, hoverOn: false, mag: 0,
-    idle: 0, intro: 0, split: -1, shock: 0, heroH: 0,
-  });
-  const [grabbing, setGrabbing] = useState(false);
-  const last = useRef({ x: 0, y: 0, t: 0, moved: 0 });
-  const wrap = useRef<HTMLDivElement>(null);
-  const mobile = useMemo(
-    () => typeof matchMedia !== "undefined" && (matchMedia("(pointer: coarse)").matches || window.innerWidth < 768),
-    []
-  );
-
-  const updateHover = (e: React.PointerEvent) => {
-    const r = wrap.current!.getBoundingClientRect();
-    ctrl.current.hoverX = ((e.clientX - r.left) / r.width) * 2 - 1;
-    ctrl.current.hoverY = -(((e.clientY - r.top) / r.height) * 2 - 1);
-    ctrl.current.hoverOn = true;
-  };
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    ctrl.current.dragging = true;
-    ctrl.current.idle = 0;
-    setGrabbing(true);
-    last.current = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 };
-    onInteract?.();
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    updateHover(e);
-    const c = ctrl.current;
-    if (!c.dragging) return;
-    const l = last.current;
-    const dx = e.clientX - l.x, dy = e.clientY - l.y;
-    const dt = Math.max((performance.now() - l.t) / 1000, 0.008);
-    c.yaw += dx * 0.01;
-    c.pitch = clamp(c.pitch + dy * 0.006, -0.5, 0.5);
-    c.vyaw = (dx * 0.01) / dt;
-    c.vpitch = (dy * 0.006) / dt;
-    l.moved += Math.abs(dx) + Math.abs(dy);
-    l.x = e.clientX; l.y = e.clientY; l.t = performance.now();
-  };
-
-  const onPointerUp = () => {
-    const c = ctrl.current;
-    c.dragging = false;
-    c.idle = 0;
-    setGrabbing(false);
-    if (last.current.moved < 6) {
-      c.split = 0.0001;
-      c.shock = 1;
-      onInteract?.();
-    }
-  };
-
-  return (
-    <div
-      ref={wrap}
-      className={`hero3d${grabbing ? " grabbing" : ""}`}
-      style={{ position: "absolute", inset: 0, touchAction: "pan-y" }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={() => { ctrl.current.dragging = false; setGrabbing(false); }}
-      onPointerEnter={updateHover}
-      onPointerLeave={() => { ctrl.current.hoverOn = false; }}
-    >
-      <Canvas
-        frameloop={running ? "always" : "never"}
-        dpr={[1, 1.75]}
-        camera={{ position: [0, 0, 520], fov: 40 }}
-        gl={{
-          antialias: true,
-          alpha: true,
-          preserveDrawingBuffer:
-            typeof location !== "undefined" && new URLSearchParams(location.search).get("glcapture") === "1",
-        }}
-        onCreated={() => {
-          const hero = wrap.current?.closest(".hero");
-          ctrl.current.heroH = hero instanceof HTMLElement ? hero.clientHeight : window.innerHeight;
-        }}
-      >
-        <Suspense fallback={null}>
-          <PerformanceMonitor>
-            <AdaptiveDpr pixelated={false} />
-          </PerformanceMonitor>
-          <Scene ctrl={ctrl} mobile={mobile} count={mobile ? 250 : 500} />
-        </Suspense>
-      </Canvas>
-    </div>
+    <canvas
+      ref={canvasRef}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }}
+    />
   );
 }

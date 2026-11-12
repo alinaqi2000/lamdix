@@ -8,7 +8,9 @@ const ok = (name: string, cond: boolean, extra = "") =>
   results.push(`${cond ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
 
 await mkdir(OUT, { recursive: true });
-const browser = await chromium.launch();
+// ANGLE-Vulkan uses the real GPU when available and falls back to
+// SwiftShader-Vulkan otherwise — keeps WebGL hero checks fast and portable.
+const browser = await chromium.launch({ args: ["--use-angle=vulkan"] });
 const _newPage = browser.newPage.bind(browser);
 (browser as any).newPage = async (a?: any) => { const p = await _newPage(a); p.setDefaultTimeout(120000); return p; };
 const _newContext = browser.newContext.bind(browser);
@@ -21,7 +23,7 @@ const _newContext = browser.newContext.bind(browser);
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
 await page.goto(BASE, { waitUntil: "networkidle" });
-await page.addStyleTag({ content: ".sculpt-frame canvas{visibility:hidden!important}" });
+await page.addStyleTag({ content: ".hero-bg canvas{visibility:hidden!important}" });
 await page.waitForTimeout(1500);
 
 // ---------- header shots ----------
@@ -262,7 +264,7 @@ const scrollToPanel = async (p: import("playwright").Page) => {
   const p = await mctx.newPage();
   const cdp = await mctx.newCDPSession(p);
   await p.goto(BASE, { waitUntil: "networkidle" });
-  await p.addStyleTag({ content: ".sculpt-frame canvas{visibility:hidden!important}" });
+  await p.addStyleTag({ content: ".hero-bg canvas{visibility:hidden!important}" });
   await scrollToPanel(p);
   const box = (await p.locator(".system-main").boundingBox())!;
   const sx = box.x + box.width * 0.75, sy = box.y + box.height * 0.55;
@@ -335,7 +337,7 @@ const scrollToPanel = async (p: import("playwright").Page) => {
 
 // ---------- hero 3d ----------
 const shotCanvas = async (p: import("playwright").Page, path: string) => {
-  const data = await p.locator(".sculpt-frame canvas").first().evaluate(
+  const data = await p.locator(".hero-canvas > canvas").first().evaluate(
     (c) => (c as HTMLCanvasElement).toDataURL("image/png")
   );
   const buf = Buffer.from(data.replace(/^data:image\/png;base64,/, ""), "base64");
@@ -343,7 +345,7 @@ const shotCanvas = async (p: import("playwright").Page, path: string) => {
   return buf;
 };
 {
-  const gl = await chromium.launch({ args: ["--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader"] });
+  const gl = await chromium.launch({ args: ["--use-angle=vulkan"] });
   const p = await gl.newPage({ viewport: { width: 1440, height: 900 } });
   p.setDefaultTimeout(120000);
   const webgl = await p.evaluate(() => {
@@ -353,8 +355,8 @@ const shotCanvas = async (p: import("playwright").Page, path: string) => {
   ok("WebGL context available (required for hero tests)", webgl);
   if (!webgl) throw new Error("No WebGL — hero checks cannot run");
   await p.goto(`${BASE}/?glcapture=1`, { waitUntil: "domcontentloaded" });
-  const frame = p.locator(".sculpt-frame[data-frameloop]");
-  ok("hero canvas mounted", await p.locator(".sculpt-frame canvas").waitFor({ timeout: 25000 }).then(() => true).catch(() => false));
+  const frame = p.locator(".hero-bg[data-frameloop]");
+  ok("hero canvas mounted", await p.locator(".hero-canvas > canvas").waitFor({ timeout: 25000 }).then(() => true).catch(() => false));
   await p.waitForTimeout(600);
   await shotCanvas(p, `${OUT}/hero-intro-mid.png`);
   await p.waitForTimeout(2800);
@@ -363,28 +365,20 @@ const shotCanvas = async (p: import("playwright").Page, path: string) => {
   await p.mouse.move(fb.x + fb.width * 0.75, fb.y + fb.height * 0.45);
   await p.waitForTimeout(900);
   await shotCanvas(p, `${OUT}/hero-hover.png`);
-  await p.mouse.move(fb.x + fb.width * 0.6, fb.y + fb.height * 0.5);
-  await p.mouse.down();
-  for (let i = 1; i <= 6; i++) { await p.mouse.move(fb.x + fb.width * 0.6 - 32 * i, fb.y + fb.height * 0.5); await p.waitForTimeout(18); }
-  await shotCanvas(p, `${OUT}/hero-drag.png`);
-  await p.mouse.up();
-  await p.waitForTimeout(1600);
-  await p.mouse.click(fb.x + fb.width * 0.5, fb.y + fb.height * 0.5);
-  await p.waitForTimeout(350);
-  const splitBuf = await shotCanvas(p, `${OUT}/hero-split-mid.png`);
-  const diff = await p.evaluate(async ([da, db]) => {
-    const load = (d: string) => new Promise<HTMLImageElement>((res) => { const i = new Image(); i.onload = () => res(i); i.src = d; });
-    const [ia, ib] = await Promise.all([load(da), load(db)]);
+  const nonBlank = await p.evaluate((b64) => {
     const c = document.createElement("canvas");
-    c.width = ia.width; c.height = ia.height;
-    const x = c.getContext("2d")!;
-    x.drawImage(ia, 0, 0); const A = x.getImageData(0, 0, c.width, c.height).data;
-    x.clearRect(0, 0, c.width, c.height); x.drawImage(ib, 0, 0); const B = x.getImageData(0, 0, c.width, c.height).data;
-    let n = 0;
-    for (let i = 0; i < A.length; i += 16) if (Math.abs(A[i] - B[i]) > 24) n++;
-    return n;
-  }, [`data:image/png;base64,${idleBuf.toString("base64")}`, `data:image/png;base64,${splitBuf.toString("base64")}`]);
-  ok("click split visibly changes canvas", diff > 400, `diffPx=${diff}`);
+    const i = new Image();
+    return new Promise<number>((res) => { i.onload = () => {
+      c.width = i.width; c.height = i.height;
+      const x = c.getContext("2d")!;
+      x.drawImage(i, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let j = 3; j < d.length; j += 64) if (d[j] > 12) n++;
+      res(n);
+    }; i.src = b64; });
+  }, `data:image/png;base64,${idleBuf.toString("base64")}`);
+  ok("hero canvas renders non-blank pixels", nonBlank > 50, `litPx=${nonBlank}`);
   const fl1 = await frame.getAttribute("data-frameloop");
   await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight * 0.5));
   await p.waitForTimeout(800);
@@ -402,9 +396,9 @@ const shotCanvas = async (p: import("playwright").Page, path: string) => {
   const cdp = await mctx.newCDPSession(p);
   await p.goto(`${BASE}/?glcapture=1`, { waitUntil: "networkidle" });
   await p.waitForTimeout(1800);
-  await p.locator(".sculpt-frame canvas").waitFor({ timeout: 25000 }).catch(() => {});
+  await p.locator(".hero-canvas > canvas").waitFor({ timeout: 25000 }).catch(() => {});
   await shotCanvas(p, `${OUT}/hero-390.png`);
-  const fb = (await p.locator(".sculpt-frame[data-frameloop]").boundingBox())!;
+  const fb = (await p.locator(".hero-bg[data-frameloop]").boundingBox())!;
   const sx = fb.x + fb.width / 2, sy = fb.y + fb.height * 0.6;
   const y0 = await p.evaluate(() => window.scrollY);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx, y: sy }] });

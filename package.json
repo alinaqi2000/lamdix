@@ -16,7 +16,6 @@
   "dependencies": {
     "@lineiconshq/free-icons": "1.0.7",
     "@lineiconshq/react-lineicons": "1.0.5",
-    "@react-three/drei": "10.7.9",
     "@react-three/fiber": "9.8.2",
     "embla-carousel-autoplay": "8.6.0",
     "embla-carousel-react": "8.6.0",

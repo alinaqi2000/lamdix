@@ -9,7 +9,10 @@ const ok = (name: string, cond: boolean, extra = "") =>
 
 await mkdir(OUT, { recursive: true });
 
-const browser = await chromium.launch();
+// Prefer the real GPU via ANGLE-Vulkan when present (SwiftShader fallback keeps
+// CI/headless-only machines working); CPU rasterization makes full-page
+// screenshots of the WebGL hero exceed the 30s capture timeout.
+const browser = await chromium.launch({ args: ["--use-angle=vulkan"] });
 
 // ---------- system tabs: exactly one visible panel per state ----------
 {

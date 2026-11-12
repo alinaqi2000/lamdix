@@ -55,9 +55,16 @@ export default function Home() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <section className="hero">
-        <div className="aurora" aria-hidden="true" />
+        <Hero3DLoader />
+        <div className="hero-legibility" aria-hidden="true" />
         <div className="wrap hero-grid" style={{ position: "relative", zIndex: 1 }}>
           <div className="hero-copy">
+            <div className="hero-mark" aria-hidden="true">
+              <svg viewBox="0 0 277 289" focusable="false">
+                <path d="M29 0H80C109 0 126 15 138 42L157 96L54 272H0L110 96L96 59Q92 29 70 29H29Z" fill="#f4f1ea" />
+                <path d="M165 114L211 234C222 259 245 240 242 223C240 211 234 204 224 202C256 195 282 223 277 249C273 278 238 289 210 278C190 273 181 256 175 240L139 167Z" fill="#26c9bb" />
+              </svg>
+            </div>
             <p className="eyebrow">Independent software &amp; AI agency</p>
             <h1 className="display">
               <span className="hero-line">Build beyond</span>{" "}
@@ -75,9 +82,6 @@ export default function Home() {
             <div className="hero-bottom">
               <span className="scroll-hint">Scroll</span>
             </div>
-          </div>
-          <div className="hero-art">
-            <Hero3DLoader />
           </div>
           <div className="sys-strip">
             <Link href="/services/custom-software-development" className="sys-seg"><IconBox icon="Code1Solid" size={16} /><span><b>Software</b><span>Apps · APIs · data</span></span></Link>
@@ -121,7 +125,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section arc-sec arc-r" style={{ paddingTop: 0 }}>
         <div className="wrap">
           <Reveal>
             <div className="section-head">
@@ -149,7 +153,7 @@ export default function Home() {
         <IndustriesCarousel />
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section arc-sec arc-l" style={{ paddingTop: 0 }}>
         <div className="wrap">
           <Reveal>
             <div className="section-head">
@@ -215,7 +219,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
+      <section className="section arc-sec arc-r" style={{ paddingTop: 0 }}>
         <div className="wrap"><CtaBand /></div>
       </section>
     </>
