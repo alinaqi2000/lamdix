@@ -2058,8 +2058,8 @@ body.menu-open {
   min-height: 340px;
 }
 .bento-sm {
-  grid-column: span 4;
-  min-height: 240px;
+  grid-column: span 3;
+  min-height: 250px;
 }
 .bento-cell > :not(.tint-img) {
   position: relative;
@@ -2074,6 +2074,11 @@ body.menu-open {
 .bento-cell p {
   font-size: 14px;
   color: var(--paper-dim);
+}
+@media (max-width: 1100px) {
+  .bento-sm {
+    grid-column: span 6;
+  }
 }
 @media (max-width: 860px) {
   .bento-big,
@@ -2093,16 +2098,16 @@ body.menu-open {
   scrollbar-width: thin;
 }
 .ind-card {
-  flex: 0 0 min(340px, 82vw);
+  flex: 0 0 min(280px, 74vw);
   scroll-snap-align: start;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   position: relative;
-  min-height: 420px;
+  min-height: 350px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 24px;
+  padding: 20px;
 }
 .ind-card > :not(.tint-img) {
   position: relative;
